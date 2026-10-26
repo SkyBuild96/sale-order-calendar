@@ -322,23 +322,61 @@
   }
 
   // ---------- Manager connection ----------
+  const VERSION = '0.2';
+  const diag = { inFrame: (() => { try { return window.self !== window.top; } catch { return true; } })(), messages: [] };
+
+  // Describes a message's structure (key names and types only, never values) so it is safe to share.
+  function describe(v, depth = 0) {
+    if (v == null) return String(v);
+    if (typeof v === 'string') {
+      try { const j = JSON.parse(v); if (j && typeof j === 'object') return `JSON text ${describe(j, depth)}`; } catch { /* plain text */ }
+      return `text(${v.length})`;
+    }
+    if (typeof v !== 'object') return typeof v;
+    if (Array.isArray(v)) return `list(${v.length})`;
+    if (depth > 2) return '{…}';
+    return `{ ${Object.keys(v).map(k => `${k}: ${describe(v[k], depth + 1)}`).join(', ')} }`;
+  }
+  // Looks anywhere in the message for an API address and access token, whatever Manager calls them.
+  function findContext(v, depth = 0) {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return null; } }
+    if (!v || typeof v !== 'object' || depth > 3) return null;
+    const keys = Object.keys(v);
+    const ep = keys.find(k => /^(apiEndpoint|endpoint|apiUrl|apiBase|baseUrl|api)$/i.test(k) && typeof v[k] === 'string');
+    const tk = keys.find(k => /^(apiAccessToken|accessToken|token|apiKey|bearer)$/i.test(k) && typeof v[k] === 'string');
+    if (ep) return { apiEndpoint: v[ep], apiAccessToken: tk ? v[tk] : '' };
+    for (const k of keys) { const f = findContext(v[k], depth + 1); if (f) return f; }
+    return null;
+  }
+  function showDiagnostics() {
+    if (state.ctx) return;
+    let from = 'unknown';
+    try { if (document.referrer) from = new URL(document.referrer).origin; } catch { /* ignore */ }
+    const lines = [
+      `Extension version: ${VERSION}`,
+      `Running inside Manager’s screen: <b>${diag.inFrame ? 'yes' : 'no'}</b>`,
+      `Opened from: ${esc(from)}`,
+      `Messages received from Manager: <b>${diag.messages.length}</b>`,
+      ...diag.messages.slice(-3).map(m => `Message from ${esc(m.origin)}: <code>${esc(m.shape.slice(0, 600))}</code>`)
+    ];
+    notify(`Not connected to Manager yet.<br>${lines.join('<br>')}`, 'error');
+  }
+
   window.addEventListener('message', ev => {
-    const d = ev.data;
-    if (!d || typeof d !== 'object') return;
-    const p = d.type === 'manager-context' ? d.payload : d;
-    if (p && p.apiEndpoint) {
+    if (ev.source === window) return;
+    diag.messages.push({ origin: ev.origin || 'unknown', shape: describe(ev.data) });
+    const ctx = findContext(ev.data);
+    if (ctx) {
       const first = !state.ctx;
-      state.ctx = p;
+      state.ctx = ctx;
       $('pillManager').classList.add('on');
       $('pillManager').textContent = 'Manager connected';
-      if (first) loadOrders();
+      if (first) { clearNotice(); loadOrders(); }
+    } else if (!state.ctx) {
+      showDiagnostics();
     }
   });
-  setTimeout(() => {
-    if (!state.ctx && !state.manualKey) {
-      notify('Waiting for Manager. Open this page from Extensions inside Manager, or connect with an API key under Settings to test it on its own.');
-    }
-  }, 2500);
+  setTimeout(() => { if (!state.ctx && !state.manualKey) showDiagnostics(); }, 3000);
 
   function apiBase() { return state.ctx ? state.ctx.apiEndpoint : settings.manualEndpoint; }
   function authHeaders() {
