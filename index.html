@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales order calendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F3F5F8; --surface: #FFFFFF; --ink: #1C2433; --muted: #5B6476; --line: #DDE2EA;
+    --accent: #2E5AAC; --accent-soft: #E7EEFA; --ok: #23825A; --ok-soft: #E3F3EB;
+    --void: #8A93A3; --void-soft: #EEF0F3; --danger: #B3261E; --danger-soft: #FBE9E7;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161D; --surface: #1A1F28; --ink: #E6E9EF; --muted: #9AA3B2; --line: #2C3340;
+      --accent: #8AAAEE; --accent-soft: #223050; --ok: #5BC092; --ok-soft: #1D3A2D;
+      --void: #7C8595; --void-soft: #262C36; --danger: #F08A80; --danger-soft: #3D2220;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { max-width: 1120px; margin: 0 auto; padding: 18px 16px 40px; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  .summary { color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .status { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--void); }
+  .pill.on { color: var(--ink); } .pill.on::before { background: var(--ok); }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .month-nav { display: flex; align-items: center; gap: 4px; margin-right: auto; }
+  .month-nav h2 { margin: 0 8px; font-size: 17px; font-weight: 600; min-width: 150px; }
+  .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 12px; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.icon { padding: 7px 10px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .btn.primary { color: #10141B; } }
+  .btn:disabled { opacity: .55; cursor: default; }
+
+  .notice { border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; display: none; border: 1px solid var(--line); background: var(--surface); }
+  .notice.show { display: block; }
+  .notice.error { border-color: var(--danger); background: var(--danger-soft); }
+  .notice .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .layout { display: grid; grid-template-columns: 1fr 280px; gap: 14px; align-items: start; }
+  .grid-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .dow, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .dow div { padding: 8px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .cell { min-height: 108px; padding: 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    background: transparent; border-top: 0; border-left: 0; text-align: left; display: flex; flex-direction: column; gap: 3px; }
+  .cell:nth-child(7n) { border-right: 0; }
+  .cell.out { background: var(--bg); }
+  .cell.out .num { color: var(--void); }
+  .cell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  .num { font-size: 12.5px; font-weight: 600; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
+  .cell.today .num { background: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { .cell.today .num { color: #10141B; } }
+  .more { font-size: 11.5px; color: var(--muted); padding-left: 4px; }
+
+  .chip { display: flex; justify-content: space-between; gap: 6px; font-size: 11.5px; padding: 2px 6px;
+    border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 2px 4px 4px 2px; min-width: 0; }
+  .chip span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .amt { font-variant-numeric: tabular-nums; flex-shrink: 0; color: var(--muted); }
+  .tone-done { border-left-color: var(--ok); background: var(--ok-soft); }
+  .tone-void { border-left-color: var(--void); background: var(--void-soft); text-decoration: line-through; }
+
+  .side { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; position: sticky; top: 12px; }
+  .side h3 { margin: 0 0 10px; font-size: 15px; }
+  .order { padding: 10px 0; border-top: 1px solid var(--line); }
+  .order:first-of-type { border-top: 0; padding-top: 0; }
+  .order-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+  .order-top .amt { font-variant-numeric: tabular-nums; }
+  .order .meta { color: var(--muted); font-size: 12.5px; }
+  .order ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; }
+  .sync-state { font-size: 12px; margin-top: 4px; }
+  .sync-state.synced { color: var(--ok); } .sync-state.pending { color: var(--accent); }
+  .empty { color: var(--muted); }
+
+  .agenda { display: none; }
+  .agenda .day { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .agenda .day h3 { margin: 0 0 8px; font-size: 14px; }
+
+  details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; margin-top: 14px; }
+  details.panel > summary { padding: 12px 14px; cursor: pointer; font-weight: 600; }
+  .panel-body { padding: 4px 14px 16px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+  label small { color: var(--muted); font-weight: 400; }
+  input[type=text], input[type=number], input[type=password], select {
+    border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; }
+  label.check { flex-direction: row; align-items: center; gap: 8px; }
+  .group-title { margin: 18px 0 8px; font-size: 13.5px; font-weight: 600; }
+  .group-title:first-child { margin-top: 4px; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; max-height: 360px; font-size: 12px; }
+
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; }
+    .grid-wrap, .side { display: none; }
+    .agenda { display: block; }
+    .month-nav { width: 100%; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .chip, .cell { transition: background-color .15s; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Sales order calendar</h1>
+      <div class="summary" id="summary">Waiting for sales orders</div>
+    </div>
+    <div class="status">
+      <span class="pill" id="pillManager">Manager</span>
+      <span class="pill" id="pillGoogle">Google Calendar</span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="month-nav">
+      <button class="btn icon" id="prev" aria-label="Previous month">‹</button>
+      <h2 id="monthLabel"></h2>
+      <button class="btn icon" id="next" aria-label="Next month">›</button>
+      <button class="btn" id="today">Today</button>
+    </div>
+    <button class="btn" id="reload">Reload orders</button>
+    <button class="btn primary" id="sync">Sync to Google Calendar</button>
+  </div>
+
+  <div class="notice" id="notice" role="status" aria-live="polite"></div>
+
+  <div class="layout">
+    <div>
+      <div class="grid-wrap">
+        <div class="dow"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>
+        <div class="grid" id="grid"></div>
+      </div>
+      <div class="agenda" id="agenda"></div>
+    </div>
+    <aside class="side" id="side"></aside>
+  </div>
+
+  <details class="panel" id="settingsPanel">
+    <summary>Settings</summary>
+    <div class="panel-body">
+      <div class="group-title">Google Calendar</div>
+      <div class="fields">
+        <label>OAuth client ID
+          <input type="text" id="clientId" placeholder="1234567890-abc.apps.googleusercontent.com">
+          <small>From Google Cloud Console, web application type.</small>
+        </label>
+        <label>Calendar access
+          <select id="scopeMode">
+            <option value="app">Only the calendar this tool creates (recommended)</option>
+            <option value="any">Any calendar I choose</option>
+          </select>
+        </label>
+        <label>Calendar ID
+          <input type="text" id="calendarId" placeholder="Created automatically on first sync">
+          <small>Leave empty to create a calendar called “Sales orders”.</small>
+        </label>
+        <label>Sync orders dated from
+          <input type="number" id="daysBack" min="0" max="3650">
+          <small>Days before today. Older orders are left alone.</small>
+        </label>
+      </div>
+
+      <div class="group-title">What each event shows</div>
+      <div class="fields">
+        <label>Calendar date<select id="dateField"></select><small>Pick a delivery-date custom field here if you have one.</small></label>
+        <label>Order number<select id="refField"></select></label>
+        <label>Customer<select id="customerField"></select></label>
+        <label>Amount<select id="amountField"></select></label>
+        <label>Status<select id="statusField"></select></label>
+        <label>Description<select id="descField"></select></label>
+      </div>
+
+      <div class="group-title">Manager data</div>
+      <div class="fields">
+        <label>Sales order list path<input type="text" id="listPath"><small>Check this in Manager’s Playground on the Sales Orders page.</small></label>
+        <label>Single order path<input type="text" id="formPath"><small>{key} is replaced with the order’s key.</small></label>
+        <label class="check"><input type="checkbox" id="loadDetails"> Load full order details (custom fields, line items)</label>
+      </div>
+
+      <div class="group-title">Testing outside Manager</div>
+      <div class="fields">
+        <label>API address<input type="text" id="manualEndpoint" placeholder="http://127.0.0.1:55667/api2"></label>
+        <label>API key<input type="password" id="manualKey" placeholder="Kept in memory only"></label>
+      </div>
+      <div style="margin-top:10px"><button class="btn" id="connectManual">Connect with API key</button></div>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Raw data from the first order</summary>
+    <div class="panel-body"><pre id="inspector">Load orders to see the fields Manager returns.</pre></div>
+  </details>
+</div>
+
+<script>
+(() => {
+  // ---------- Settings ----------
+  const SETTINGS_KEY = 'soc-settings-v1';
+  const DEFAULTS = {
+    clientId: '', calendarId: '', scopeMode: 'app', daysBack: 30,
+    dateField: '', refField: '', customerField: '', amountField: '', statusField: '', descField: '',
+    listPath: '/sales-orders', formPath: '/sales-order-form/{key}', loadDetails: false, manualEndpoint: ''
+  };
+  const FIELD_SETTINGS = ['dateField', 'refField', 'customerField', 'amountField', 'statusField', 'descField'];
+  const SCOPES = {
+    app: 'https://www.googleapis.com/auth/calendar.app.created',
+    any: 'https://www.googleapis.com/auth/calendar.events'
+  };
+  const SOURCE_TAG = 'manager-sales-order';
+  const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  function loadSettings() {
+    try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+    catch { return { ...DEFAULTS }; }
+  }
+  function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* storage unavailable */ }
+  }
+  let settings = loadSettings();
+
+  const state = {
+    ctx: null, manualKey: '', raw: [], orders: [], fields: [],
+    month: firstOfMonth(new Date()), selected: null,
+    token: null, tokenExp: 0, plan: null, syncMark: {}, busy: false
+  };
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------- Dates ----------
+  function firstOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+  function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+  function addDays(s, n) { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); }
+  function todayYmd() { return ymd(new Date()); }
+  function toYmd(v) {
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+    if (v == null || v === '') return null;
+    const d = new Date(v);
+    return isNaN(d) ? null : ymd(d);
+  }
+  function niceDate(s) { return parseYmd(s).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }); }
+
+  // ---------- Generic data helpers ----------
+  const keyOf = r => r && (r.key ?? r.Key ?? r.id ?? null);
+  function getPath(obj, path) {
+    if (!path) return undefined;
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  }
+  function str(v) {
+    if (v == null) return '';
+    if (typeof v === 'object') return v.name || v.Name || v.code || v.value || '';
+    return String(v);
+  }
+  function toNum(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') { const n = parseFloat(v.replace(/,/g, '')); return isNaN(n) ? null : n; }
+    if (v && typeof v === 'object' && 'value' in v) return toNum(v.value);
+    return null;
+  }
+  const fmtMoney = n => n == null ? '' : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function firstArray(res) {
+    if (Array.isArray(res)) return res;
+    if (!res || typeof res !== 'object') return [];
+    let best = [];
+    for (const v of Object.values(res)) {
+      if (Array.isArray(v) && v.length >= best.length && (v.length === 0 || typeof v[0] === 'object')) best = v;
+    }
+    return best;
+  }
+  function flatten(obj, prefix = '', out = {}, depth = 0) {
+    if (!obj || typeof obj !== 'object') return out;
+    for (const [k, v] of Object.entries(obj)) {
+      const p = prefix ? `${prefix}.${k}` : k;
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) { if (depth < 4) flatten(v, p, out, depth + 1); }
+      else if (!Array.isArray(v)) out[p] = v;
+    }
+    return out;
+  }
+  function hash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length); let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); }
+    });
+    await Promise.all(workers);
+    return out;
+  }
+  function tone(status) {
+    if (/cancel|void/i.test(status)) return 'void';
+    if (/invoic|deliver|complete|closed|fulfil/i.test(status)) return 'done';
+    return 'open';
+  }
+
+  // ---------- Notices ----------
+  function notify(html, kind = '', actions = '') {
+    const n = $('notice');
+    n.className = `notice show ${kind}`;
+    n.innerHTML = `<div>${html}</div>${actions ? `<div class="actions">${actions}</div>` : ''}`;
+  }
+  function clearNotice() { $('notice').className = 'notice'; }
+  function setBusy(on) {
+    state.busy = on;
+    ['reload', 'sync'].forEach(id => $(id).disabled = on);
+  }
+
+  // ---------- Manager connection ----------
+  window.addEventListener('message', ev => {
+    const d = ev.data;
+    if (!d || typeof d !== 'object') return;
+    const p = d.type === 'manager-context' ? d.payload : d;
+    if (p && p.apiEndpoint) {
+      const first = !state.ctx;
+      state.ctx = p;
+      $('pillManager').classList.add('on');
+      $('pillManager').textContent = 'Manager connected';
+      if (first) loadOrders();
+    }
+  });
+  setTimeout(() => {
+    if (!state.ctx && !state.manualKey) {
+      notify('Waiting for Manager. Open this page from Extensions inside Manager, or connect with an API key under Settings to test it on its own.');
+    }
+  }, 2500);
+
+  function apiBase() { return state.ctx ? state.ctx.apiEndpoint : settings.manualEndpoint; }
+  function authHeaders() {
+    return state.ctx ? { Authorization: `Bearer ${state.ctx.apiAccessToken}` } : { 'X-API-KEY': state.manualKey };
+  }
+  async function managerGet(path) {
+    const base = apiBase();
+    if (!base) throw new Error('Not connected to Manager yet.');
+    const r = await fetch(base.replace(/\/+$/, '') + path, { headers: { Accept: 'application/json', ...authHeaders() } });
+    if (!r.ok) throw new Error(`Manager returned ${r.status} for ${esc(path)}. Check the path in Settings against Manager’s Playground.`);
+    return r.json();
+  }
+
+  async function loadOrders() {
+    if (state.busy) return;
+    setBusy(true);
+    notify('Loading sales orders from Manager…');
+    try {
+      const byKey = new Map(); const pageSize = 100; let skip = 0;
+      for (let page = 0; page < 200; page++) {
+        const sep = settings.listPath.includes('?') ? '&' : '?';
+        const res = await managerGet(`${settings.listPath}${sep}skip=${skip}&pageSize=${pageSize}`);
+        const arr = firstArray(res); let added = 0;
+        arr.forEach((r, idx) => { const k = keyOf(r) || `row-${skip + idx}`; if (!byKey.has(k)) { byKey.set(k, r); added++; } });
+        const total = res && (res.totalRecords ?? res.total ?? res.count);
+        if (arr.length < pageSize || added === 0 || (typeof total === 'number' && byKey.size >= total)) break;
+        skip += arr.length;
+      }
+      let raw = [...byKey.values()];
+      if (settings.loadDetails && raw.length) {
+        let done = 0;
+        raw = await mapLimit(raw, 6, async r => {
+          const k = keyOf(r);
+          let form = null;
+          if (k) { try { form = await managerGet(settings.formPath.replace('{key}', encodeURIComponent(k))); } catch { /* keep list data */ } }
+          done++;
+          if (done % 10 === 0) notify(`Loading order details… ${done} of ${raw.length}`);
+          return form ? { ...r, form } : r;
+        });
+      }
+      state.raw = raw;
+      state.plan = null; state.syncMark = {};
+      buildFields(); guessFields(); fillSettingsForm(); normalize(); render();
+      $('inspector').textContent = raw.length ? JSON.stringify(raw[0], null, 2).slice(0, 20000) : 'Manager returned no sales orders.';
+      if (!raw.length) notify('Manager returned no sales orders. If you expected some, check the list path in Settings.');
+      else if (!settings.dateField) notify(`Loaded ${raw.length} sales orders, but no date field was found. Choose one under Settings.`, 'error');
+      else clearNotice();
+    } catch (e) {
+      notify(e.message, 'error');
+    } finally { setBusy(false); }
+  }
+
+  // ---------- Field mapping ----------
+  function buildFields() {
+    const map = new Map();
+    for (const r of state.raw.slice(0, 30)) {
+      for (const [p, v] of Object.entries(flatten(r))) {
+        if (!map.has(p) || (map.get(p) === '' || map.get(p) == null)) map.set(p, v);
+      }
+    }
+    state.fields = [...map.entries()].map(([path, sample]) => ({ path, sample })).sort((a, b) => a.path.localeCompare(b.path));
+  }
+  function guessFields() {
+    const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v);
+    const isNum = v => typeof v === 'number' || (typeof v === 'string' && /^-?[\d,]+(\.\d+)?$/.test(v));
+    const notGuid = v => typeof v === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(v);
+    const pick = (re, test) => (state.fields.find(f => re.test(f.path) && (!test || test(f.sample))) || {}).path || '';
+    const ensure = (name, fn) => { if (!settings[name] || !state.fields.some(f => f.path === settings[name])) settings[name] = fn(); };
+    ensure('dateField', () => pick(/(^|\.)(date|orderDate|issueDate)$/i, isDate) || pick(/date/i, isDate));
+    ensure('refField', () => pick(/(^|\.)(reference|orderNumber|number)$/i) || pick(/reference/i));
+    ensure('customerField', () => pick(/customer.*name$/i, notGuid) || pick(/customer/i, notGuid));
+    ensure('amountField', () => pick(/(^|\.)(amount|total|orderAmount|totalAmount)(\.value)?$/i, isNum) || pick(/amount|total/i, isNum));
+    ensure('statusField', () => pick(/status/i));
+    ensure('descField', () => pick(/(^|\.)description$/i));
+    saveSettings();
+  }
+  function linesOf(r) {
+    const arr = r.lines || (r.form && (r.form.lines || r.form.Lines));
+    if (!Array.isArray(arr)) return [];
+    return arr.map(l => {
+      const name = str(l.lineDescription || l.description || (l.item && (l.item.name || l.item.itemName)) || l.item || '');
+      const q = l.qty ?? l.quantity;
+      return (q != null && q !== '' ? `${q} × ` : '') + name;
+    }).filter(s => s.trim());
+  }
+  function normalize() {
+    state.orders = state.raw.map((r, i) => {
+      const status = str(getPath(r, settings.statusField));
+      return {
+        key: keyOf(r) || `row-${i}`,
+        date: toYmd(getPath(r, settings.dateField)),
+        ref: str(getPath(r, settings.refField)) || 'Sales order',
+        customer: str(getPath(r, settings.customerField)),
+        amount: toNum(getPath(r, settings.amountField)),
+        status, tone: tone(status),
+        desc: str(getPath(r, settings.descField)),
+        lines: linesOf(r)
+      };
+    });
+  }
+
+  // ---------- Rendering ----------
+  function ordersByDay() {
+    const m = new Map();
+    for (const o of state.orders) {
+      if (!o.date) continue;
+      if (!m.has(o.date)) m.set(o.date, []);
+      m.get(o.date).push(o);
+    }
+    for (const list of m.values()) list.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    return m;
+  }
+  function chip(o) {
+    return `<span class="chip tone-${o.tone}" title="${esc([o.ref, o.customer].filter(Boolean).join(', '))}">
+      <span>${esc(o.customer || o.ref)}</span><span class="amt">${esc(fmtMoney(o.amount))}</span></span>`;
+  }
+  function orderDetail(o) {
+    const mark = state.syncMark[o.key];
+    const syncLine = mark === 'synced' ? '<div class="sync-state synced">On Google Calendar</div>'
+      : mark === 'pending' ? '<div class="sync-state pending">Waiting to sync</div>' : '';
+    return `<div class="order">
+      <div class="order-top"><span>${esc(o.ref)}</span><span class="amt">${esc(fmtMoney(o.amount))}</span></div>
+      <div class="meta">${esc([o.customer, o.status].filter(Boolean).join(', '))}</div>
+      ${o.desc ? `<div class="meta">${esc(o.desc)}</div>` : ''}
+      ${o.lines.length ? `<ul>${o.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+      ${syncLine}</div>`;
+  }
+  function render() {
+    const byDay = ordersByDay();
+    const m = state.month;
+    $('monthLabel').textContent = m.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    const monthKey = ymd(m).slice(0, 7);
+    const inMonth = state.orders.filter(o => o.date && o.date.startsWith(monthKey));
+    const total = inMonth.reduce((s, o) => s + (o.tone === 'void' ? 0 : (o.amount || 0)), 0);
+    $('summary').textContent = state.raw.length
+      ? `${inMonth.length} ${inMonth.length === 1 ? 'order' : 'orders'} this month, ${fmtMoney(total)} total`
+      : 'Waiting for sales orders';
+
+    // Month grid
+    const start = new Date(m); start.setDate(1 - m.getDay());
+    const today = todayYmd(); let html = '';
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const key = ymd(d); const list = byDay.get(key) || [];
+      const cls = ['cell', d.getMonth() !== m.getMonth() && 'out', key === today && 'today', key === state.selected && 'sel'].filter(Boolean).join(' ');
+      html += `<button class="${cls}" data-day="${key}" aria-label="${esc(niceDate(key))}, ${list.length} orders">
+        <span class="num">${d.getDate()}</span>
+        ${list.slice(0, 3).map(chip).join('')}
+        ${list.length > 3 ? `<span class="more">${list.length - 3} more</span>` : ''}</button>`;
+    }
+    $('grid').innerHTML = html;
+
+    // Agenda (phones)
+    const days = [...byDay.keys()].filter(k => k.startsWith(monthKey)).sort();
+    $('agenda').innerHTML = days.length
+      ? days.map(k => `<div class="day"><h3>${esc(niceDate(k))}</h3>${byDay.get(k).map(orderDetail).join('')}</div>`).join('')
+      : `<div class="day empty">No sales orders dated in this month.</div>`;
+
+    // Side panel
+    const sel = state.selected;
+    $('side').innerHTML = sel
+      ? `<h3>${esc(niceDate(sel))}</h3>${(byDay.get(sel) || []).map(orderDetail).join('') || '<p class="empty">No sales orders on this day.</p>'}`
+      : `<h3>Order details</h3><p class="empty">Select a day to see its sales orders.</p>`;
+  }
+
+  // ---------- Settings form ----------
+  function fillSettingsForm() {
+    ['clientId', 'calendarId', 'daysBack', 'listPath', 'formPath', 'manualEndpoint', 'scopeMode'].forEach(id => { $(id).value = settings[id] ?? ''; });
+    $('loadDetails').checked = !!settings.loadDetails;
+    for (const name of FIELD_SETTINGS) {
+      const sel = $(name);
+      if (!state.fields.length) { sel.innerHTML = '<option value="">Load orders to choose a field</option>'; sel.disabled = true; continue; }
+      sel.disabled = false;
+      sel.innerHTML = '<option value="">None</option>' + state.fields.map(f => {
+        const sample = f.sample == null ? '' : String(f.sample).slice(0, 40);
+        return `<option value="${esc(f.path)}"${f.path === settings[name] ? ' selected' : ''}>${esc(f.path)}${sample ? ` (e.g. ${esc(sample)})` : ''}</option>`;
+      }).join('');
+    }
+  }
+  function bindSettings() {
+    ['clientId', 'calendarId', 'listPath', 'formPath', 'manualEndpoint'].forEach(id =>
+      $(id).addEventListener('change', () => { settings[id] = $(id).value.trim(); saveSettings(); }));
+    $('daysBack').addEventListener('change', () => { settings.daysBack = Math.max(0, parseInt($('daysBack').value, 10) || 0); saveSettings(); });
+    $('scopeMode').addEventListener('change', () => { settings.scopeMode = $('scopeMode').value; state.token = null; saveSettings(); });
+    $('loadDetails').addEventListener('change', () => { settings.loadDetails = $('loadDetails').checked; saveSettings(); });
+    FIELD_SETTINGS.forEach(name => $(name).addEventListener('change', () => {
+      settings[name] = $(name).value; saveSettings(); state.plan = null; state.syncMark = {}; normalize(); render();
+    }));
+    $('manualKey').addEventListener('change', () => { state.manualKey = $('manualKey').value.trim(); });
+    $('connectManual').addEventListener('click', () => {
+      settings.manualEndpoint = $('manualEndpoint').value.trim(); saveSettings();
+      state.manualKey = $('manualKey').value.trim();
+      if (!settings.manualEndpoint || !state.manualKey) { notify('Enter both the API address and the API key.', 'error'); return; }
+      $('pillManager').classList.add('on'); $('pillManager').textContent = 'Manager (API key)';
+      loadOrders();
+    });
+  }
+
+  // ---------- Google sign-in ----------
+  let gisPromise = null;
+  function loadGis() {
+    if (gisPromise) return gisPromise;
+    gisPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+      s.onload = resolve;
+      s.onerror = () => { gisPromise = null; reject(new Error('Could not load Google sign-in. Check your internet connection.')); };
+      document.head.appendChild(s);
+    });
+    return gisPromise;
+  }
+  async function getToken() {
+    if (state.token && Date.now() < state.tokenExp - 60000) return state.token;
+    if (!settings.clientId) { $('settingsPanel').open = true; throw new Error('Add your Google OAuth client ID under Settings first.'); }
+    await loadGis();
+    return new Promise((resolve, reject) => {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: settings.clientId,
+        scope: SCOPES[settings.scopeMode] || SCOPES.app,
+        callback: resp => {
+          if (resp.error) { reject(new Error(`Google sign-in failed: ${resp.error}`)); return; }
+          state.token = resp.access_token;
+          state.tokenExp = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+          $('pillGoogle').classList.add('on'); $('pillGoogle').textContent = 'Google connected';
+          resolve(state.token);
+        },
+        error_callback: err => reject(new Error(err && err.type === 'popup_failed_to_open'
+          ? 'The Google sign-in window was blocked. Allow pop-ups for Manager, then try again.'
+          : 'Google sign-in was closed before it finished.'))
+      });
+      client.requestAccessToken(state.tokenExp ? { prompt: '' } : {});
+    });
+  }
+  async function gcal(method, path, body, attempt = 0) {
+    const token = await getToken();
+    const r = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
+      method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (r.status === 401 && attempt < 1) { state.token = null; return gcal(method, path, body, attempt + 1); }
+    if ((r.status === 429 || r.status === 403) && attempt < 4) {
+      const txt = await r.clone().text();
+      if (r.status === 429 || /rateLimit/i.test(txt)) { await sleep(800 * 2 ** attempt); return gcal(method, path, body, attempt + 1); }
+    }
+    if (r.status === 204 || (method === 'DELETE' && (r.status === 404 || r.status === 410))) return null;
+    if (!r.ok) {
+      let msg = ''; try { msg = (await r.json()).error.message; } catch { /* no body */ }
+      throw new Error(`Google Calendar returned ${r.status}${msg ? `: ${msg}` : ''}`);
+    }
+    return r.json();
+  }
+
+  // ---------- Sync ----------
+  function eventFor(o) {
+    const summary = [o.ref, o.customer, o.amount != null ? fmtMoney(o.amount) : ''].filter(Boolean).join(' · ');
+    const description = [
+      o.status && `Status: ${o.status}`,
+      o.desc,
+      o.lines.length ? `Items:\n${o.lines.map(l => `• ${l}`).join('\n')}` : '',
+      'Synced from Manager.io'
+    ].filter(Boolean).join('\n\n');
+    const core = {
+      summary, description,
+      start: { date: o.date }, end: { date: addDays(o.date, 1) },
+      colorId: { open: '9', done: '2', void: '8' }[o.tone],
+      transparency: 'transparent'
+    };
+    return { ...core, extendedProperties: { private: { source: SOURCE_TAG, managerKey: String(o.key), hash: hash(JSON.stringify(core)) } } };
+  }
+  async function ensureCalendar() {
+    if (settings.calendarId) return settings.calendarId;
+    const cal = await gcal('POST', '/calendars', { summary: 'Sales orders', description: 'Synced from Manager.io', timeZone: TZ });
+    settings.calendarId = cal.id; saveSettings(); $('calendarId').value = cal.id;
+    return cal.id;
+  }
+  async function buildPlan() {
+    if (!state.orders.length) throw new Error('Load sales orders before syncing.');
+    if (!settings.dateField) { $('settingsPanel').open = true; throw new Error('Choose which field holds the calendar date under Settings.'); }
+    const calId = await ensureCalendar();
+    const existing = new Map(); let pageToken = '';
+    do {
+      const q = new URLSearchParams({ privateExtendedProperty: `source=${SOURCE_TAG}`, maxResults: '2500', showDeleted: 'false' });
+      if (pageToken) q.set('pageToken', pageToken);
+      const res = await gcal('GET', `/calendars/${encodeURIComponent(calId)}/events?${q}`);
+      for (const ev of res.items || []) {
+        const p = (ev.extendedProperties && ev.extendedProperties.private) || {};
+        if (p.managerKey) existing.set(p.managerKey, { id: ev.id, hash: p.hash });
+      }
+      pageToken = res.nextPageToken || '';
+    } while (pageToken);
+
+    const cutoff = addDays(todayYmd(), -Number(settings.daysBack || 0));
+    const create = [], update = [], remove = []; let unchanged = 0; const mark = {};
+    for (const o of state.orders) {
+      if (!o.date || o.date < cutoff) continue;
+      const ev = eventFor(o); const ex = existing.get(String(o.key));
+      if (!ex) { create.push({ o, ev }); mark[o.key] = 'pending'; }
+      else if (ex.hash !== ev.extendedProperties.private.hash) { update.push({ o, ev, id: ex.id }); mark[o.key] = 'pending'; }
+      else { unchanged++; mark[o.key] = 'synced'; }
+    }
+    // Only remove events when every order has a real Manager key, so nothing is deleted by mistake.
+    const reliableKeys = state.orders.every(o => !String(o.key).startsWith('row-'));
+    if (reliableKeys) {
+      const allKeys = new Set(state.orders.map(o => String(o.key)));
+      for (const [k, ex] of existing) if (!allKeys.has(k)) remove.push({ id: ex.id });
+    }
+    return { calId, create, update, remove, unchanged, mark };
+  }
+  async function startSync() {
+    if (state.busy) return;
+    setBusy(true);
+    notify('Checking Google Calendar…');
+    try {
+      const p = await buildPlan();
+      state.plan = p; state.syncMark = p.mark; render();
+      const changes = p.create.length + p.update.length + p.remove.length;
+      if (!changes) {
+        notify(`Everything is already up to date (${p.unchanged} orders on the calendar).`, '',
+          '<a class="btn" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar</a>');
+      } else {
+        const parts = [
+          p.create.length && `${p.create.length} new`,
+          p.update.length && `${p.update.length} changed`,
+          p.remove.length && `${p.remove.length} removed (no longer in Manager)`
+        ].filter(Boolean).join(', ');
+        notify(`Ready to sync: ${parts}. ${p.unchanged} already up to date.`, '',
+          `<button class="btn primary" id="applySync">Apply ${changes} ${changes === 1 ? 'change' : 'changes'}</button>
+           <button class="btn" id="cancelSync">Cancel</button>`);
+        $('applySync').onclick = applyPlan;
+        $('cancelSync').onclick = () => { state.plan = null; clearNotice(); };
+      }
+    } catch (e) { notify(e.message, 'error'); }
+    finally { setBusy(false); }
+  }
+  async function applyPlan() {
+    const p = state.plan; if (!p || state.busy) return;
+    setBusy(true);
+    const cal = `/calendars/${encodeURIComponent(p.calId)}/events`;
+    const jobs = [
+      ...p.create.map(j => async () => { await gcal('POST', cal, j.ev); state.syncMark[j.o.key] = 'synced'; }),
+      ...p.update.map(j => async () => { await gcal('PATCH', `${cal}/${encodeURIComponent(j.id)}`, j.ev); state.syncMark[j.o.key] = 'synced'; }),
+      ...p.remove.map(j => async () => { await gcal('DELETE', `${cal}/${encodeURIComponent(j.id)}`); })
+    ];
+    let done = 0; const failures = [];
+    await mapLimit(jobs, 4, async job => {
+      try { await job(); } catch (e) { failures.push(e.message); }
+      done++; notify(`Syncing ${done} of ${jobs.length}…`);
+    });
+    state.plan = null; render(); setBusy(false);
+    const link = '<a class="btn" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar</a>';
+    if (failures.length) notify(`Synced ${jobs.length - failures.length} of ${jobs.length}. ${failures.length} failed: ${esc(failures[0])}`, 'error', link);
+    else notify(`Synced ${jobs.length} ${jobs.length === 1 ? 'change' : 'changes'} to Google Calendar.`, '', link);
+  }
+
+  // ---------- Wire up ----------
+  $('prev').onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1); render(); };
+  $('next').onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1); render(); };
+  $('today').onclick = () => { state.month = firstOfMonth(new Date()); state.selected = todayYmd(); render(); };
+  $('reload').onclick = loadOrders;
+  $('sync').onclick = startSync;
+  $('grid').addEventListener('click', e => {
+    const cell = e.target.closest('[data-day]'); if (!cell) return;
+    state.selected = cell.dataset.day; render();
+  });
+
+  bindSettings();
+  fillSettingsForm();
+  render();
+})();
+</script>
+</body>
+</html>
