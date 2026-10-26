@@ -322,7 +322,7 @@
   }
 
   // ---------- Manager connection ----------
-  const VERSION = '0.2';
+  const VERSION = '0.3';
   const diag = { inFrame: (() => { try { return window.self !== window.top; } catch { return true; } })(), messages: [] };
 
   // Describes a message's structure (key names and types only, never values) so it is safe to share.
@@ -357,6 +357,7 @@
       `Running inside Manager’s screen: <b>${diag.inFrame ? 'yes' : 'no'}</b>`,
       `Opened from: ${esc(from)}`,
       `Messages received from Manager: <b>${diag.messages.length}</b>`,
+      `Asking Manager directly: ${diag.bridgeError ? esc(diag.bridgeError) : 'not tried yet'}`,
       ...diag.messages.slice(-3).map(m => `Message from ${esc(m.origin)}: <code>${esc(m.shape.slice(0, 600))}</code>`)
     ];
     notify(`Not connected to Manager yet.<br>${lines.join('<br>')}`, 'error');
@@ -364,6 +365,7 @@
 
   window.addEventListener('message', ev => {
     if (ev.source === window) return;
+    if (ev.data && typeof ev.data.type === 'string' && ev.data.type.endsWith('-response')) return;
     diag.messages.push({ origin: ev.origin || 'unknown', shape: describe(ev.data) });
     const ctx = findContext(ev.data);
     if (ctx) {
@@ -376,13 +378,49 @@
       showDiagnostics();
     }
   });
-  setTimeout(() => { if (!state.ctx && !state.manualKey) showDiagnostics(); }, 3000);
+  // Newer Manager versions don't push a context; instead the extension asks Manager to make API calls for it.
+  function viaParent(method, path, timeoutMs = 60000) {
+    return new Promise((resolve, reject) => {
+      const requestId = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const timer = setTimeout(() => { window.removeEventListener('message', handler); reject(new Error(`Manager did not answer within ${Math.round(timeoutMs / 1000)} seconds.`)); }, timeoutMs);
+      function handler(ev) {
+        const d = ev.data;
+        if (!d || typeof d.type !== 'string' || !d.type.endsWith('-response') || d.requestId !== requestId) return;
+        clearTimeout(timer); window.removeEventListener('message', handler);
+        if (d.error) { reject(new Error(String(d.error))); return; }
+        let body = d.body;
+        if (typeof body === 'string') { try { body = JSON.parse(body); } catch { /* leave as text */ } }
+        resolve(body);
+      }
+      window.addEventListener('message', handler);
+      window.parent.postMessage({ type: 'api-request', method, path, requestId }, '*');
+    });
+  }
+  setTimeout(async () => {
+    if (state.ctx || state.manualKey) return;
+    if (!diag.inFrame) { showDiagnostics(); return; }
+    try {
+      await viaParent('GET', `${settings.listPath}${settings.listPath.includes('?') ? '&' : '?'}PageSize=1`, 10000);
+      state.bridge = true;
+      $('pillManager').classList.add('on');
+      $('pillManager').textContent = 'Manager connected';
+      clearNotice();
+      loadOrders();
+    } catch (e) {
+      diag.bridgeError = e.message;
+      showDiagnostics();
+    }
+  }, 1500);
 
   function apiBase() { return state.ctx ? state.ctx.apiEndpoint : settings.manualEndpoint; }
   function authHeaders() {
     return state.ctx ? { Authorization: `Bearer ${state.ctx.apiAccessToken}` } : { 'X-API-KEY': state.manualKey };
   }
   async function managerGet(path) {
+    if (!state.ctx && state.bridge) {
+      try { return await viaParent('GET', path); }
+      catch (e) { throw new Error(`Manager couldn’t load ${esc(path)}: ${esc(e.message)}. Check the path in Settings against Manager’s Playground.`); }
+    }
     const base = apiBase();
     if (!base) throw new Error('Not connected to Manager yet.');
     const r = await fetch(base.replace(/\/+$/, '') + path, { headers: { Accept: 'application/json', ...authHeaders() } });
@@ -398,7 +436,7 @@
       const byKey = new Map(); const pageSize = 100; let skip = 0;
       for (let page = 0; page < 200; page++) {
         const sep = settings.listPath.includes('?') ? '&' : '?';
-        const res = await managerGet(`${settings.listPath}${sep}skip=${skip}&pageSize=${pageSize}`);
+        const res = await managerGet(`${settings.listPath}${sep}PageSize=${pageSize}&Skip=${skip}`);
         const arr = firstArray(res); let added = 0;
         arr.forEach((r, idx) => { const k = keyOf(r) || `row-${skip + idx}`; if (!byKey.has(k)) { byKey.set(k, r); added++; } });
         const total = res && (res.totalRecords ?? res.total ?? res.count);
