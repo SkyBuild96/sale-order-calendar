@@ -276,12 +276,14 @@
     return null;
   }
   const fmtMoney = n => n == null ? '' : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  function firstArray(res) {
+  function firstArray(res, depth = 0) {
+    if (typeof res === 'string') { try { res = JSON.parse(res); } catch { return []; } }
     if (Array.isArray(res)) return res;
-    if (!res || typeof res !== 'object') return [];
+    if (!res || typeof res !== 'object' || depth > 3) return [];
     let best = [];
     for (const v of Object.values(res)) {
-      if (Array.isArray(v) && v.length >= best.length && (v.length === 0 || typeof v[0] === 'object')) best = v;
+      const found = Array.isArray(v) ? v : firstArray(v, depth + 1);
+      if (found.length > best.length && typeof found[0] === 'object') best = found;
     }
     return best;
   }
@@ -322,7 +324,7 @@
   }
 
   // ---------- Manager connection ----------
-  const VERSION = '0.3';
+  const VERSION = '0.4';
   const diag = { inFrame: (() => { try { return window.self !== window.top; } catch { return true; } })(), messages: [] };
 
   // Describes a message's structure (key names and types only, never values) so it is safe to share.
@@ -437,6 +439,7 @@
       for (let page = 0; page < 200; page++) {
         const sep = settings.listPath.includes('?') ? '&' : '?';
         const res = await managerGet(`${settings.listPath}${sep}PageSize=${pageSize}&Skip=${skip}`);
+        if (page === 0) state.firstReply = describe(res);
         const arr = firstArray(res); let added = 0;
         arr.forEach((r, idx) => { const k = keyOf(r) || `row-${skip + idx}`; if (!byKey.has(k)) { byKey.set(k, r); added++; } });
         const total = res && (res.totalRecords ?? res.total ?? res.count);
@@ -458,8 +461,9 @@
       state.raw = raw;
       state.plan = null; state.syncMark = {};
       buildFields(); guessFields(); fillSettingsForm(); normalize(); render();
-      $('inspector').textContent = raw.length ? JSON.stringify(raw[0], null, 2).slice(0, 20000) : 'Manager returned no sales orders.';
-      if (!raw.length) notify('Manager returned no sales orders. If you expected some, check the list path in Settings.');
+      $('inspector').textContent = raw.length ? JSON.stringify(raw[0], null, 2).slice(0, 20000)
+        : `Manager’s reply contained no list of orders. Its structure (field names only):\n${state.firstReply}`;
+      if (!raw.length) notify(`No sales orders found in Manager’s reply (version ${VERSION}). Manager’s reply looked like this (field names only):<br><code>${esc(String(state.firstReply).slice(0, 800))}</code>`, 'error');
       else if (!settings.dateField) notify(`Loaded ${raw.length} sales orders, but no date field was found. Choose one under Settings.`, 'error');
       else clearNotice();
     } catch (e) {
